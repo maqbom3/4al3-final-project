@@ -47,7 +47,7 @@ def preprocess_data(path, outdir= "preprocessed", test_size=0.2, random_state=42
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=test_size, stratify=y, random_state=random_state
     )
-
+    ###
     #OUTLIERS REMOVED ONLY ON TRAINING DATA. not test data to ensure accurate to reality
     outlier_cols = [c for c in (ORDINAL_NUM_FEATURES + NUMERICAL_FEATURES) if c in X_train.columns]
     if outlier_cols and (outlierz is not None):
