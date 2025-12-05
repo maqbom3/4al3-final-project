@@ -1,0 +1,419 @@
+#!/usr/bin/env python
+# coding: utf-8
+
+# In[2]:
+
+
+import os, seaborn, sklearn, random
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from pathlib import Path
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.compose import ColumnTransformer
+from sklearn.impute import SimpleImputer
+from sklearn.linear_model import LogisticRegression
+from sklearn.pipeline import Pipeline
+from scipy import sparse
+from sklearn.model_selection import StratifiedKFold, cross_val_score, cross_validate
+from sklearn.metrics import make_scorer, balanced_accuracy_score, f1_score
+from sklearn.metrics import classification_report
+
+
+# In[3]:
+
+
+file = Path("ObesityDataSet_raw_and_data_sinthetic.csv")
+
+df = pd.read_csv(file)
+
+
+df = df.dropna()
+df = df.drop(columns=["Height"])
+df = df.drop(columns=["Weight"])
+
+df = df.rename(columns={"NObeyesdad":"Obesity_levels"})
+df.head()
+
+
+# In[4]:
+
+
+X = df.drop(columns=["Obesity_levels"])
+y = df["Obesity_levels"]
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25, stratify=y, random_state=42)
+
+cat_cols = [
+    "Gender",
+    "family_history_with_overweight",
+    "FAVC",
+    "CAEC",
+    "SMOKE",
+    "SCC",
+    "CALC",
+    "MTRANS"
+]
+
+num_cols = [
+    "Age",
+    "FCVC",
+    "NCP",
+    "CH2O",
+    "FAF",
+    "TUE"
+]
+
+preprocess = ColumnTransformer(
+    transformers=[
+        ("cat", OneHotEncoder(handle_unknown="ignore", drop="first"), cat_cols),
+        ("num", StandardScaler(with_mean=False), num_cols),
+    ],
+    remainder="drop",
+    sparse_threshold=0.3, 
+)
+
+
+# In[5]:
+
+
+#baseline model
+from sklearn.dummy import DummyClassifier
+
+#majority vote strategy
+clf = LogisticRegression( solver="lbfgs", max_iter = 5000, class_weight = "balanced")
+
+dummy = Pipeline (steps=[ ("preprocess", preprocess), ("dummy", DummyClassifier(strategy="most_frequent", random_state=42))]
+)
+
+
+
+# In[6]:
+
+
+clf = LogisticRegression( solver="lbfgs", max_iter = 5000, class_weight = "balanced")
+
+pipe = Pipeline (steps=[ ("preprocess", preprocess), ("model", clf)]
+)
+
+pipe.fit(X_train, y_train)
+
+
+# In[12]:
+
+
+from sklearn.metrics import confusion_matrix, precision_score, recall_score, f1_score, balanced_accuracy_score, matthews_corrcoef, classification_report
+
+scoring = {
+    'f1_macro': 'f1_macro',
+    'balanced_accuracy': make_scorer(balanced_accuracy_score)
+}
+
+cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+
+
+cv_results = cross_validate(pipe, X, y, cv=cv, scoring=scoring, n_jobs=-1)
+dummyresults = cross_validate(dummy, X, y, cv=cv, scoring=scoring, n_jobs=1)
+
+print(f"Dummy(most_frequent)  F1-macro: {dummyresults['test_f1_macro'].mean():.3f} ± {dummyresults['test_f1_macro'].std():.3f} | "
+      f"BalAcc: {dummyresults['test_balanced_accuracy'].mean():.3f} ± {dummyresults['test_balanced_accuracy'].std():.3f}")
+print("##################")
+print(f"Model F1-macro: {cv_results['test_f1_macro'].mean():.3f} ± {cv_results['test_f1_macro'].std():.3f}")
+print(f"Model Balanced Accuracy: {cv_results['test_balanced_accuracy'].mean():.3f} ± {cv_results['test_balanced_accuracy'].std():.3f}")
+
+
+cm_logreg, labels = get_confusion_matrix(pipe, X, y, cv)
+print("\nFinal Cross-Validated Confusion Matrix:\n")
+print(cm_logreg)
+
+def metrics_from_confusion_matrix(cm):
+    y_true_flat = []
+    y_pred_flat = []
+
+    for true_class in range(cm.shape[0]):
+        for pred_class in range(cm.shape[1]):
+            count = cm[true_class, pred_class]
+            y_true_flat += [true_class] * count
+            y_pred_flat += [pred_class] * count
+
+    return {
+        "Precision_macro": precision_score(y_true_flat, y_pred_flat, average="macro"),
+        "Recall_macro": recall_score(y_true_flat, y_pred_flat, average="macro"),
+        "F1_macro": f1_score(y_true_flat, y_pred_flat, average="macro"),
+        "Balanced Accuracy": balanced_accuracy_score(y_true_flat, y_pred_flat),
+        "MCC": matthews_corrcoef(y_true_flat, y_pred_flat)
+    }
+
+metrics_logreg = metrics_from_confusion_matrix(cm_logreg)
+print("\nMetrics from CV Confusion Matrix (LogReg):")
+for k, v in metrics_logreg.items():
+    print(f"{k}: {v:.3f}")
+
+
+pipe.fit(X_train, y_train)
+y_pred = pipe.predict(X_test)
+print("\nClassification report on held-out test set:")
+print(classification_report(y_test, y_pred, digits=3))
+
+
+# In[13]:
+
+
+from sklearn.tree import DecisionTreeClassifier, ExtraTreeClassifier
+from sklearn.svm import LinearSVC, SVC
+from sklearn.linear_model import (
+    LogisticRegression,
+    PassiveAggressiveClassifier,
+    Perceptron,
+    SGDClassifier,
+)
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
+from sklearn.neural_network import MLPClassifier
+
+
+# In[14]:
+
+
+from sklearn.metrics import (
+    confusion_matrix,
+    precision_score,
+    recall_score,
+    f1_score,
+    balanced_accuracy_score,
+    matthews_corrcoef,
+    make_scorer,
+)
+from sklearn.model_selection import cross_validate, StratifiedKFold
+import numpy as np
+import pandas as pd
+from sklearn.pipeline import Pipeline
+
+# scoring dict for cross_validate
+scoring = {
+    "f1_macro": "f1_macro",
+    "balanced_accuracy": make_scorer(balanced_accuracy_score),
+}
+
+def get_cv_confusion_matrix(model, X, y, cv):
+    """Sum confusion matrices across CV folds."""
+    labels = np.unique(y)
+    total_cm = np.zeros((len(labels), len(labels)), dtype=int)
+
+    for train_idx, test_idx in cv.split(X, y):
+        X_train_cv, X_test_cv = X.iloc[train_idx], X.iloc[test_idx]
+        y_train_cv, y_test_cv = y.iloc[train_idx], y.iloc[test_idx]
+
+        model.fit(X_train_cv, y_train_cv)
+        preds = model.predict(X_test_cv)
+
+        cm = confusion_matrix(y_test_cv, preds, labels=labels)
+        total_cm += cm
+
+    return total_cm, labels
+
+
+def metrics_from_confusion_matrix(cm):
+    """Compute macro metrics + MCC from a summed CM."""
+    y_true_flat = []
+    y_pred_flat = []
+
+    for true_class in range(cm.shape[0]):
+        for pred_class in range(cm.shape[1]):
+            count = cm[true_class, pred_class]
+            y_true_flat += [true_class] * count
+            y_pred_flat += [pred_class] * count
+
+    return {
+        "Precision_macro": precision_score(y_true_flat, y_pred_flat, average="macro"),
+        "Recall_macro": recall_score(y_true_flat, y_pred_flat, average="macro"),
+        "F1_macro_cm": f1_score(y_true_flat, y_pred_flat, average="macro"),
+        "BalancedAccuracy_cm": balanced_accuracy_score(y_true_flat, y_pred_flat),
+        "MCC": matthews_corrcoef(y_true_flat, y_pred_flat),
+    }
+
+
+# In[15]:
+
+
+# defining models
+
+models = {
+    "DecisionTreeClassifier": DecisionTreeClassifier(random_state=42),
+    "ExtraTreeClassifier": ExtraTreeClassifier(random_state=42),
+    "LinearSVC": LinearSVC(random_state=42),
+    "LogisticRegression": LogisticRegression(
+        solver="lbfgs", max_iter=5000, class_weight="balanced"
+    ),
+    "PassiveAggressiveClassifier": PassiveAggressiveClassifier(random_state=42),
+    "Perceptron": Perceptron(random_state=42),
+    "KNeighborsClassifier": KNeighborsClassifier(n_neighbors=5),
+    "SGDClassifier": SGDClassifier(random_state=42),
+
+    "GradientBoostingClassifier": GradientBoostingClassifier(random_state=42),
+    "MLPClassifier": MLPClassifier(hidden_layer_sizes=(100,), max_iter=500, random_state=42),
+    "RandomForestClassifier": RandomForestClassifier(
+        n_estimators=200, random_state=42, n_jobs=-1
+    ),
+    "SVC": SVC(kernel="rbf", class_weight="balanced", random_state=42),
+}
+
+
+# In[16]:
+
+
+results = []
+
+for name, clf in models.items():
+    print(f"Running model: {name}")
+
+    pipe = Pipeline(steps=[
+        ("preprocess", preprocess),
+        ("model", clf),
+    ])
+
+    # Cross-validated scores (macro F1 + balanced accuracy)
+    cv_res = cross_validate(
+        pipe, X, y,
+        cv=cv,
+        scoring=scoring,
+        n_jobs=-1,
+        return_train_score=False
+    )
+
+    # Summed CV confusion matrix + derived metrics
+    cm, labels = get_cv_confusion_matrix(pipe, X, y, cv)
+    metrics_cm = metrics_from_confusion_matrix(cm)
+
+    results.append({
+        "Model": name,
+        "CV_F1_macro_mean": cv_res["test_f1_macro"].mean(),
+        "CV_F1_macro_std": cv_res["test_f1_macro"].std(),
+        "CV_BalAcc_mean": cv_res["test_balanced_accuracy"].mean(),
+        "CV_BalAcc_std": cv_res["test_balanced_accuracy"].std(),
+        "CM_F1_macro": metrics_cm["F1_macro_cm"],
+        "CM_Precision_macro": metrics_cm["Precision_macro"],
+        "CM_Recall_macro": metrics_cm["Recall_macro"],
+        "CM_BalancedAccuracy": metrics_cm["BalancedAccuracy_cm"],
+        "CM_MCC": metrics_cm["MCC"],
+    })
+
+# Turn into a nice table
+results_df = pd.DataFrame(results).set_index("Model")
+print(results_df.round(3))
+
+
+# In[18]:
+
+
+def get_confusion_matrix(model, X, y, cv):
+    labels = np.unique(y)
+    total_cm = np.zeros((len(labels), len(labels)), dtype=int)
+
+    for train_idx, test_idx in cv.split(X, y):
+        X_train_cv, X_test_cv = X.iloc[train_idx], X.iloc[test_idx]
+        y_train_cv, y_test_cv = y.iloc[train_idx], y.iloc[test_idx]
+
+        model.fit(X_train_cv, y_train_cv)
+        preds = model.predict(X_test_cv)
+
+        cm = confusion_matrix(y_test_cv, preds, labels=labels)
+        total_cm += cm
+
+    return total_cm, labels
+results = []
+
+for model_name, model in models.items():
+    print("\n==============================")
+    print(f"MODEL: {model_name}")
+    print("==============================")
+
+    pipe = Pipeline([("preprocess", preprocess), ("model", model)])
+
+    cv_results = cross_validate(pipe, X, y, cv=cv, scoring=scoring, n_jobs=-1)
+
+    f1_mean = cv_results["test_f1_macro"].mean()
+    f1_std = cv_results["test_f1_macro"].std()
+    bal_mean = cv_results["test_balanced_accuracy"].mean()
+    bal_std = cv_results["test_balanced_accuracy"].std()
+
+    print(f"CV F1-macro: {f1_mean:.3f} ± {f1_std:.3f}")
+    print(f"CV Balanced Accuracy: {bal_mean:.3f} ± {bal_std:.3f}")
+
+  
+    cm, labels = get_confusion_matrix(pipe, X, y, cv)
+    print("\nCross-validated confusion matrix:")
+    print(cm)
+
+    metrics = metrics_from_confusion_matrix(cm)
+    print("\nConfusion-matrix metrics:")
+    for k, v in metrics.items():
+        print(f"{k}: {v:.3f}")
+
+ 
+    pipe.fit(X_train, y_train)
+    y_pred = pipe.predict(X_test)
+
+    print("\nClassification report on held-out test set:")
+    print(classification_report(y_test, y_pred, digits=3))
+
+    results.append({
+        "Model": model_name,
+        "CV_F1_mean": f1_mean,
+        "CV_F1_std": f1_std,
+        "CV_Bal_mean": bal_mean,
+        "CV_Bal_std": bal_std,
+        **metrics
+    })
+results_df = pd.DataFrame(results)
+print("\n\nFINAL MODEL COMPARISON TABLE:")
+print(results_df)
+
+
+# In[ ]:
+
+
+
+
+
+# In[ ]:
+
+
+
+
+
+# In[ ]:
+
+
+
+
+
+# In[ ]:
+
+
+
+
+
+# In[ ]:
+
+
+
+
+
+# In[ ]:
+
+
+
+
+
+# In[ ]:
+
+
+
+
+
+# In[ ]:
+
+
+
+
